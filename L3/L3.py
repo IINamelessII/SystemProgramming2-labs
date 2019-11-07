@@ -2,16 +2,20 @@ import re
 from functools import reduce
 
 
-def find_symbols(text):
-    symbols = ['...', ',', '!=', '==', '?', '<>', '^', '>>', '<<', '|=', '&&',
-               '[', ']', '(', ')', '*', '!', '\'', '_', '+=', '-=', '^=', '||',
-               '{', '}', ':', ';', '.', '/', '\\', '*=', '/=', '<<=', '->', '<=',
-               '--', '++', ':=', '"', '#', '%', '~', '%=', '&=', '>>=', '>=']
-    return reduce(lambda a, x: a + x, [[i] * text.count(i) for i in symbols])
+class MySyntaxException(Exception): pass
 
 
-def find_parts(text):
-    return reduce(lambda a, x: a + x, [[i] * text.count(i) for i in ['>', '<', '+', '-', '=', '.', '&', '|']])
+def error(message, reason=None):
+    print(message)
+    raise MySyntaxException()
+
+
+def extract_symbols(text):
+    return list(filter(lambda x: text.count(x), SYMBOLS))
+
+
+def extract_parts(text):
+    return list(filter(lambda x: text.count(x), PARTS))
 
 
 def is_service(text):
@@ -21,46 +25,56 @@ def is_service(text):
                      'end', 'until', 'return', 'sizeof', 'continue', 'for', 'short', 'signed', 'volatile']
 
 
-def compile_text(text):
-    print(f'Input: {text}')
+def my_print(data, label):
+    print(f'{label}: {", ".join(sorted(list(data)))}')
 
-    if re.search('[а-яА-ЯёЁ]+', text) or re.search(r'[0-9]+[a-zA-Z]+', text):
-        return print('Input has mistakes.')
-    else:
 
-        text_num = re.findall(r'[0-9]+\.[0-9]+', text) #floats
-        for i in text_num:
-            if not (re.search(r'[a-zA-Z]' + i ,text)):
-                text = text.replace(i, '')
+def analyse(source):
+    try:
+        symbols, services, variables, nums = {';'}, set(), set(), set()
+
+        lines = map(lambda x: x.strip(), source.split(';'))
+        for line in filter(lambda x: x, lines):
+            _symbols = extract_symbols(line)
+            symbols.update(_symbols)
+            pre_operants = [line]
+            for symb in _symbols:
+                pre_operants = reduce(lambda a, b: a + b, [i.split(symb) for i in pre_operants])
+            
+            for pre_operant in filter(lambda x: x, pre_operants):
+                _parts = extract_parts(pre_operant)
+                symbols.update(_parts)
+                operants = [pre_operant]
+                for part in _parts:
+                    operants = reduce(lambda a, b: a + b, [i.split(part) for i in operants])
                 
-        text_num += re.findall(r'[0-9]+', text) #ints
-        for i in text_num:
-            if not (re.search(r'[a-zA-Z]' + i ,text)):
-                text = text.replace(i, '')
-
-        text_symb = find_symbols(text) #symbols except + - = < > . & |
-        for i in text_symb:
-            text = text.replace(i, ' ')
+                for operant in filter(lambda x: x, operants):
+                    for piece in operant.split():
+                        if is_service(piece):
+                            services.add(piece)
+                        elif piece.isdigit() or re.fullmatch(r'\d+\.\d+', piece):
+                            nums.add(piece)
+                        elif re.fullmatch(r'[a-zA-Z_]+[\w]*', piece):
+                            variables.add(piece)
+                        else:
+                            error('Error!')
         
-        parts = find_parts(text) #+ - = < > . & |
-        for i in parts:
-            text = text.replace(i, ' ')
+        print(f'Input was: {source}')
+        my_print(symbols, 'Symbols')
+        my_print(services, 'Service words')
+        my_print(variables, 'Variables')
+        my_print(nums, 'Numbers')
+    except MySyntaxException:
+        pass
 
-        text_serv = list(filter(lambda x: is_service(x), text.split())) #service words
-        text = list(filter(lambda x: not is_service(x), text.split()))
 
-        text_var = sorted(list(set(text))) #variables
-        text_var = list(filter(lambda x: not re.fullmatch(r'[0-9]+', x), text_var))
-        text_symb = sorted(list(set(text_symb + parts)))
+SYMBOLS = ['...', ',', '!=', '==', '?', '<>', '^', '>>', '<<', '|=', '&&',
+               '[', ']', '(', ')', '*', '!', '\'', '+=', '-=', '^=', '||',
+               '{', '}', ':', '/', '\\', '*=', '/=', '<<=', '->', '<=',
+               '--', '++', ':=', '"', '#', '%', '~', '%=', '&=', '>>=', '>=']
 
-        return print(f"Service words: {', '.join(sorted(list(set(text_serv))))}\nVariables: {', '.join(text_var)}\nNums: {', '.join(sorted(list(set(text_num))))}\nSymbols: {' '.join(text_symb)}")
+PARTS = ['>', '<', '+', '-', '=', '&', '|']
 
 
 if __name__ == '__main__':
-    test_case = 'ifca))))b=sin2*a);el se b=2*a;' #By Variant 22
-    # test_case = 'repeat begin И:=b+a[n]; n:=n-1 end until n=0;' #With kirillic
-    # test_case = 'switch(c){case 0: b=2.33*a[n]; break; default: b=d;}' #With float
-    # test_case = 'do{--n;... if(b==a[n]) return n;}while(n); a=5*3;' #With ..., --(but without -) and with ==
-    # test_case = 'switch(c){case 0: b&=a[n]; break; default: b|=(d >= 3)||(c < myfunc(n));}' #With logical operators
-    # test_case = 'typedef struct {int somevar;short another;double last} RESULT;' #with some rare service words
-    compile_text(test_case)
+    analyse(r'switch(c){case 0: b&=a[n]; break; default: b|=(d >= 3)||(c < _myfunc(n));}')
