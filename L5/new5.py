@@ -4,11 +4,14 @@ import re
 
 
 class LexixError(Exception):
-    def __init__(self, reason, token):
+    def __init__(self, reason, token=None):
         self.reason = reason
         self.token = token
     
     def __str__(self):
+        if self.token is None:
+            return self.reason
+
         return f'{self.reason} at {self.token[1]} position: {self.token[2]}'
 
 
@@ -23,15 +26,19 @@ def log(func):
 
 
 def is_operator(part):
-    return part in {'+', '-', '/', '*'}
+    return part in {'+', '-', '/', '*', '%'}
 
 
-def is_logical_operator(part):
-    return part in {'<', '<=', '>', '>=', '<>', '!=', '='}
+def is_rel_operator(part):
+    return part in {'<', '<=', '>', '>=', '<>', '='}
+
+
+def is_logic_operator(part):
+    return part in {'and', 'or'}
 
 
 def is_bracket(part):
-    return part in {'(', ')', '[', ']', '{', '}'}
+    return part in {'(', ')'} # , '[', ']', '{', '}'
 
 
 def is_num(part):
@@ -58,17 +65,25 @@ def is_var(part):
     return re.fullmatch(r'[a-zA-Z\_]+[a-zA-Z0-9\_]*', part)
 
 
+def is_boolean(part):
+    return part in {'true', 'false'}
+
+
 def identify(part, idx):
     if is_operator(part):
         tokens.append(('operator', part, idx))
-    elif is_logical_operator(part):
-        tokens.append(('logic_op', part, idx))
+    elif is_rel_operator(part):
+        tokens.append(('rel_op', part, idx))
     elif part == ':=':
         tokens.append(('assign', part, idx))
     elif is_bracket(part):
         tokens.append(('bracket', part, idx))
     elif part == ';':
         tokens.append(('semicolon', part, idx))
+    elif is_logic_operator(part.lower()):
+        tokens.append(('logic_op', part, idx))
+    elif is_boolean(part):
+        tokens.append(('boolean', part, idx))
     elif part.lower() == 'if':
         tokens.append(('if', part, idx))
     elif part.lower() == 'then':
@@ -95,7 +110,7 @@ def identify(part, idx):
 
 
 @log
-def find_logic(tokens):
+def find_brackets(tokens):
     """
     find pair of brackets and split their content from other tokens
 
@@ -127,12 +142,19 @@ def find_logic(tokens):
 
 
 @log
-def parse_logic(tokens, n):
+def parse_mix(tokens, n):
     """
-    build tree for logic expression from tokens
-    """
-    return None
+    build tree for logic/math expression from tokens
 
+    correct examples:
+        [logic] -> boolean
+        [math] -> math
+    """
+    try:
+        parse_math(tokens, n)
+    except LexixError:
+        parse_logic(tokens, n)
+    
 
 @log
 def find_end(tokens, end_semicolon):
@@ -188,7 +210,9 @@ def parse(tokens, n, end_semicolon=True):
         # if
         tree[n] = 'if'
         # logic_expr
-        logic, less = find_logic(tokens)
+        logic, less = find_brackets(tokens)
+        if len(logic) == 0:
+            raise LexixError('Missing boolean expression', tokens[0])
         parse_logic(logic, 2 * n + 1)
         # then
         token = less.pop(0)
@@ -212,8 +236,10 @@ def parse(tokens, n, end_semicolon=True):
         # for
         tree[n] = 'for'
         # assign
+        if len(tokens) == 0:
+            raise LexixError('Wrong for statement', token)
         assign, ex_assign = find_to(tokens)
-        parse_assign(assign, 4 * n + 3)
+        parse_assign(assign, 4 * n + 3, False, True) #no ;
         tree[2 * n + 1] = 'to'
         # math_expr
         math, new_tokens = find_do(ex_assign)
@@ -221,7 +247,61 @@ def parse(tokens, n, end_semicolon=True):
         # new_tokens
         parse(new_tokens, 2 * n + 2, end_semicolon)
     else:
-        parse_assign([token] + tokens, 2 * n + 1)
+        if len(tokens) == 0:
+            raise LexixError('Wrong statement', token)
+        parse_assign([token] + tokens, 2 * n + 1, end_semicolon, False)
+
+
+@log
+def parse_logic(tokens, n):
+    """
+    build tree for logic expression from tokens
+
+    correct examples:
+        [(, logic, )]
+        [logic, logic_op, logic]
+        [boolean]
+        [math, rel_op, math]
+    """
+    if len(tokens) in (0, 2):
+        raise LexixError('Wrong expression')
+    
+    # boolean
+    if len(tokens) == 1:
+        if tokens[0][0] != 'boolean':
+            raise LexixError('Wrong boolean expression', tokens[0])
+        tree[n] = tokens[0][1]
+        return
+    
+    #( logic ) [logic_op logic]
+    if tokens[0][1] == '(':
+        expression, less = find_brackets(tokens)
+
+        if len(less) == 1:
+            raise LexixError('Wrong boolean expression', less[0])
+        if len(less) > 0 and less[0][0] != 'logic_op':
+            raise LexixError('Wrong boolean operator', less[0])
+
+        if len(less) == 0:
+            tree[n] = 'brackets'
+            parse_logic(expression, 2 * n + 1)
+            return
+
+        tree[n] = less[0][1]
+        tree[2 * n + 1] = 'brackets'
+        parse_logic(expression, 4 * n + 3)
+        parse_logic(less[1:], 2 * n + 2)
+        
+        return
+    #TODO: add parsing [math, rel_op, math] and [logic(don't starts with a bracket), logic_op, logic]
+    # ignore types for 5th lab
+    # mix rel_op|logic_op mix
+    values = [i[1] for i in tokens]
+    if 'and' in values:
+        idx = values.index('and')
+        #...
+    
+    
 
 
 @log
@@ -235,6 +315,8 @@ def find_to(tokens):
     idx = 0
     while tokens[idx][0] != 'to' and idx < len(tokens):
         idx += 1
+    if idx == 0:
+        raise LexixError('Missing base expression', tokens[0])
     if idx == len(tokens):
         raise LexixError('Missing to', tokens[idx - 1])
 
@@ -242,17 +324,30 @@ def find_to(tokens):
 
 
 @log
-def parse_assign(tokens, n):
+def parse_assign(tokens, n, end_semicolon=True, no_semicolon=False):
     """
     build tree from tokens only within assign statement
+    end_semicolon ==:
+        True, False -> ; has to be
+        False, True -> ; has to don't be
+        True, True -> impossible
+        False, False -> ; can be
     """
     if tokens[0][0] != 'var':
         raise LexixError('Missing var', tokens[0])
     if tokens[1][0] != 'assign':
         raise LexixError('Missing assign', tokens[1])
+    if len(tokens) < 3:
+        raise LexixError('Wrong assign statement', tokens[1])
+    if no_semicolon and tokens[-1][0] == 'semicolon':
+        raise LexixError('Unexpected semicolon', tokens[-1])
     tree[n] = 'assign'
     tree[2 * n + 1] = tokens[0][1]
-    parse_logic(tokens[2:], 2 * n + 2)
+    if tokens[-1][0] == 'semicolon':
+        parse_mix(tokens[2:-1], 2 * n + 2)
+        return
+
+    parse_mix(tokens[2:], 2 * n + 2)
 
 
 @log
@@ -276,12 +371,51 @@ def find_do(tokens):
 def parse_math(tokens, n):
     """
     build tree from tokens only within math statement
+
+    correct examples:
+        [(, math, )]
+        [(, math, ), operator, math]
+        [var | num, [operator, math]]
     """
-    return None
+    if len(tokens) in (0, 2):
+        raise LexixError('Wrong expression')
+    if tokens[0][1] != '(' and tokens[0][0] not in ('var', 'num'):
+        raise LexixError('Wrong math expression', tokens[0])
+    
+    # ( math ) [operator math]
+    if tokens[0][1] == '(':
+        expression, less = find_brackets(tokens)
+
+        if len(less) == 1:
+            raise LexixError('Wrong math expression', less[0])
+        if len(less) > 0 and less[0][0] != 'operator':
+            raise LexixError('Wrong math operator', less[0])
+
+        if len(less) == 0:
+            tree[n] = 'brackets'
+            parse_math(expression, 2 * n + 1)
+            return
+
+        tree[n] = less[0][1]
+        tree[2 * n + 1] = 'brackets'
+        parse_math(expression, 4 * n + 3)
+        parse_math(less[1:], 2 * n + 2)
+        
+        return
+    # var|num 
+    if len(tokens) > 1 and (len(tokens) == 2 or tokens[1][0] != 'operator'):
+        raise LexixError('Wrong math expression', tokens[1])
+
+    if len(tokens) == 1:
+        tree[n] = tokens[0][1]
+        return
+    
+    tree[n] = tokens[1][1]
+    tree[2 * n + 1] = tokens[0][1]
+    parse_math(tokens[2:], 2 * n + 2)
 
 
-
-code = 'if (a > b) then begin for i := 1 to n do begin a := b; end; end;'
+code = 'if (a > b) then begin for i := 1 to n + 4 do begin a := b; end; end;'
 
 tokens = []
 curr = ''
@@ -301,7 +435,7 @@ try:
             continue
 
         curr += code[idx]
-        if curr == ':=' or is_logical_operator(curr):
+        if curr == ':=' or is_rel_operator(curr):
             identify(curr, idx)
             curr = ''
             continue
