@@ -186,14 +186,16 @@ def main(code):
 
             idx += 1
 
+        # INFO: idx is index of next token after END
+
         if opening != closing:
             raise LexixError('Missing end', tokens[idx - 1])
 
-        if end_semicolon and tokens[idx][0] != 'semicolon':
+        if end_semicolon and (idx == len(tokens) or tokens[idx][0] != 'semicolon'):
             raise LexixError('Missing semicolon', tokens[idx])
-
+        
         right = idx
-        if tokens[idx - 1][0] == 'semicolon':
+        if idx < len(tokens) and tokens[idx][0] == 'semicolon':
             right += 1
 
         return tokens[:idx - 1], tokens[right:]
