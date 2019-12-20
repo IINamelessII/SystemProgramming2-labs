@@ -18,10 +18,9 @@ def main(code):
 
     def log(func):
         def wrapper(*args, **kwargs):
-            # res = 
-            print(f'Function: {func.__name__}')
-            print(f'Args: {args}')
-            print('\n')
+            # print(f'Function: {func.__name__}')
+            # print(f'Args: {args}')
+            # print('\n')
             return func(*args, **kwargs)
         return wrapper
 
@@ -136,7 +135,7 @@ def main(code):
 
             idx += 1
 
-        print(opening, closing, opening != closing)
+        # print(opening, closing, opening != closing)
         if opening != closing:
             raise LexixError('missing )', tokens[idx - 1])
         
@@ -481,15 +480,15 @@ def main(code):
                 continue
         
         identify(curr, idx)
-        print(*tokens, sep='\n')
-        print('\n')
+        # print(*tokens, sep='\n')
+        # print('\n')
         
         tree = dict()
         parse(tokens, 0)
-        print('SUCCESSFULL END OF PARSING')
-        from pprint import pprint
-        pprint(tree)
-
+        # print('SUCCESSFULL END OF PARSING')
+        # from pprint import pprint
+        # pprint(tree)
+        print('OK')
         return True # Successfully finish
         
     except SyntaxError:
@@ -501,5 +500,9 @@ def main(code):
 
 
 if __name__ == '__main__':
-    code = 'if (a > b) then begin for i := 1 to n + 4 do begin a := b; end; end;'
+    code = 'If (a > b) then begin For i := 1 to n do begin a := b; end; end;'
+    code = 'If (a > b then begin For i := 1 to n + 4 do begin a := b; end; end;'
+    code = 'If () then begin For i := 1 to n + 4 do begin a := b; end; end;'
+    code = 'If (a > b) then begin For i = 1 to n + 4 do begin a := b; end; end;'
+    code = '(a > b) then begin For i := 1 to n + 4 do begin a := b; end; end;'
     main(code)

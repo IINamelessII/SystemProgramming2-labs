@@ -3,7 +3,7 @@
 import os
 import sys
 
-from new5 import main
+from L5 import main
 
 
 def test(code, success, debug=False):
